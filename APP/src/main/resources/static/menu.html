@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Menu - Food Ordering Kiosk</title>
+<style>
+  /* Keep the same styles as before */
+  body { margin: 0; font-family: Arial, sans-serif; background-color: #f9f9f9; display: flex; flex-direction: column; height: 100vh; }
+  header { background-color: #28a745; color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+  #cartButton { background-color: #fff; color: #28a745; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+  #cartPopup { position: fixed; top: 60px; right: 20px; background: white; border: 1px solid #ddd; box-shadow: 0 0 10px rgba(0,0,0,0.2); width: 300px; max-height: 400px; overflow-y: auto; padding: 15px; display: none; z-index: 1000; border-radius: 8px; }
+  #cartPopup h3 { margin-top: 0; }
+  #cartPopup ul { list-style: none; padding-left: 0; }
+  #cartPopup ul li { margin-bottom: 10px; }
+  #cartPopup button#backToMenu { background-color: #28a745; border: none; color: white; padding: 8px 15px; cursor: pointer; border-radius: 5px; width: 100%; font-weight: bold; }
+  .container { flex: 1; display: flex; height: calc(100vh - 60px); overflow: hidden; }
+  .sidebar { width: 200px; background: #fff; border-right: 1px solid #ddd; padding: 15px; overflow-y: auto; }
+  .sidebar h2 { font-size: 18px; margin-top: 0; }
+  .category { padding: 10px; cursor: pointer; border-radius: 6px; margin-bottom: 10px; transition: background-color 0.3s; }
+  .category:hover, .category.active { background-color: #28a745; color: white; }
+  .menu-items { flex: 1; padding: 15px; display: flex; flex-wrap: wrap; overflow-y: auto; gap: 15px; background-color: #fefefe; }
+  .item-card { background: white; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); width: 220px; display: flex; flex-direction: column; padding: 10px; }
+  .item-card img { width: 100%; height: 140px; object-fit: cover; border-radius: 6px; }
+  .item-name { font-weight: bold; margin: 8px 0 4px; font-size: 18px; }
+  .item-price { color: #28a745; font-weight: bold; }
+  .item-description { font-size: 14px; color: #555; flex-grow: 1; margin: 8px 0; }
+  .add-cart-btn, .quantity-control { background-color: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; padding: 8px; }
+  .quantity-control { display: flex; justify-content: center; align-items: center; }
+  .quantity-control button { background: #28a745; border: none; color: white; padding: 5px 12px; font-size: 18px; cursor: pointer; }
+  .quantity-control span { margin: 0 12px; font-weight: bold; font-size: 16px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>Food Ordering Kiosk</div>
+  <button id="cartButton" onclick="toggleCart()">Cart (0)</button>
+</header>
+
+<div class="container">
+  <div class="sidebar">
+    <h2>Categories</h2>
+    <div id="categories"></div>
+  </div>
+
+  <div class="menu-items" id="menuItems">
+    <!-- Items will appear here -->
+  </div>
+</div>
+
+<div id="cartPopup">
+  <h3>Your Cart</h3>
+  <ul id="cartList"></ul>
+  <div><strong>Total: $<span id="cartTotal">0.00</span></strong></div>
+  <button id="backToMenu" onclick="toggleCart()">Back to Menu</button>
+</div>
+
+<script>
+  let categories = [];
+  let allItems = [];
+  let cart = {};
+
+  // Fetch all menu items from backend API
+  async function fetchMenuItems() {
+    try {
+      const response = await fetch('/admin/menu');
+      if (!response.ok) throw new Error('Network response was not ok');
+      const data = await response.json();
+      allItems = data;
+
+      // Extract unique categories from menu items
+      const catSet = new Set();
+      allItems.forEach(item => {
+        if(item.category) {
+          catSet.add(item.category);
+        }
+      });
+      categories = Array.from(catSet);
+
+      loadCategories();
+    } catch (error) {
+      console.error('Error fetching menu items:', error);
+      document.getElementById('menuItems').innerHTML = '<p>Error loading menu items.</p>';
+    }
+  }
+
+  function loadCategories() {
+    const catDiv = document.getElementById('categories');
+    catDiv.innerHTML = '';
+    if(categories.length === 0) {
+      catDiv.innerHTML = '<p>No categories found.</p>';
+      return;
+    }
+    categories.forEach(cat => {
+      const div = document.createElement('div');
+      div.className = 'category';
+      div.textContent = cat;
+      div.onclick = () => selectCategory(cat, div);
+      catDiv.appendChild(div);
+    });
+    // Select first category by default
+    selectCategory(categories[0], catDiv.children[0]);
+  }
+
+  function selectCategory(category, element) {
+    // Highlight selected category
+    const catDiv = document.getElementById('categories');
+    for (let i=0; i<catDiv.children.length; i++) {
+      catDiv.children[i].classList.remove('active');
+    }
+    element.classList.add('active');
+    showItemsByCategory(category);
+  }
+
+  function showItemsByCategory(category) {
+    const menuDiv = document.getElementById('menuItems');
+    menuDiv.innerHTML = '';
+    const filtered = allItems.filter(item => item.category === category);
+    if (filtered.length === 0) {
+      menuDiv.innerHTML = `<p>No items available in this category.</p>`;
+      return;
+    }
+
+    filtered.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'item-card';
+
+      // For image URL fallback if null or empty
+      const imageUrl = item.imageUrl || item.image_url || '/images/default.jpg'; // adapt key if needed
+
+      card.innerHTML = `
+        <img src="${imageUrl}" alt="${item.name}" />
+        <div class="item-name">${item.name}</div>
+        <div class="item-price">$${parseFloat(item.price).toFixed(2)}</div>
+        <div class="item-description">${item.description || ''}</div>
+      `;
+
+      if (cart[item.id]) {
+        // Show quantity controls
+        const qtyControl = document.createElement('div');
+        qtyControl.className = 'quantity-control';
+        qtyControl.innerHTML = `
+          <button onclick="changeQuantity(${item.id}, -1)">-</button>
+          <span>${cart[item.id]}</span>
+          <button onclick="changeQuantity(${item.id}, 1)">+</button>
+        `;
+        card.appendChild(qtyControl);
+      } else {
+        // Show add to cart button
+        const addBtn = document.createElement('button');
+        addBtn.className = 'add-cart-btn';
+        addBtn.textContent = 'Add to Cart';
+        addBtn.onclick = () => addToCart(item.id);
+        card.appendChild(addBtn);
+      }
+
+      menuDiv.appendChild(card);
+    });
+  }
+
+  function addToCart(itemId) {
+    cart[itemId] = 1;
+    updateCartUI();
+    const activeCat = document.querySelector('.category.active').textContent;
+    showItemsByCategory(activeCat);
+  }
+
+  function changeQuantity(itemId, delta) {
+    if (!cart[itemId]) return;
+    cart[itemId] += delta;
+    if (cart[itemId] <= 0) {
+      delete cart[itemId];
+    }
+    updateCartUI();
+    const activeCat = document.querySelector('.category.active').textContent;
+    showItemsByCategory(activeCat);
+  }
+
+  function updateCartUI() {
+    const totalItems = Object.values(cart).reduce((a,b) => a+b, 0);
+    document.getElementById('cartButton').textContent = `Cart (${totalItems})`;
+  }
+
+  function toggleCart() {
+    const popup = document.getElementById('cartPopup');
+    if (popup.style.display === 'block') {
+      popup.style.display = 'none';
+    } else {
+      renderCart();
+      popup.style.display = 'block';
+    }
+  }
+
+  function renderCart() {
+    const cartList = document.getElementById('cartList');
+    cartList.innerHTML = '';
+    let totalPrice = 0;
+    for (const itemId in cart) {
+      const item = allItems.find(i => i.id == itemId);
+      if (!item) continue;
+      const qty = cart[itemId];
+      const itemTotal = item.price * qty;
+      totalPrice += itemTotal;
+
+      const li = document.createElement('li');
+      li.textContent = `${item.name} x ${qty} = $${itemTotal.toFixed(2)}`;
+      cartList.appendChild(li);
+    }
+    document.getElementById('cartTotal').textContent = totalPrice.toFixed(2);
+  }
+
+  // On page load, fetch items
+  fetchMenuItems();
+</script>
+
+</body>
+</html>
